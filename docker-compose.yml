@@ -1,0 +1,211 @@
+name: iyagi-lldap
+
+x-lldap-image: &lldap-image lldap/lldap:v0.6.3@sha256:2a8454b668c1aba7157e832eab0e242e1e7eb5fb7591d7e7774ba05286511ca8
+
+services:
+  lldap:
+    image: *lldap-image
+    container_name: ${LLDAP_CONTAINER_NAME:-iyagi-lldap}
+    hostname: lldap.iyagi.internal
+    restart: unless-stopped
+    environment:
+      UID: "1000"
+      GID: "1000"
+      TZ: UTC
+      LLDAP_LDAP_USER_PASS_FILE: /run/secrets/lldap-admin-password
+      LLDAP_JWT_SECRET_FILE: /run/secrets/lldap-jwt-secret
+      LLDAP_KEY_SEED_FILE: /run/secrets/lldap-key-seed
+      LLDAP_KEY_FILE: ""
+      LLDAP_LDAP_BASE_DN: dc=iyagi,dc=org
+      LLDAP_LDAPS_OPTIONS__ENABLED: "true"
+      LLDAP_LDAPS_OPTIONS__PORT: "6360"
+      LLDAP_LDAPS_OPTIONS__CERT_FILE: /run/lldap-certs/lldap-server.crt
+      LLDAP_LDAPS_OPTIONS__KEY_FILE: /run/lldap-certs/lldap-server.key
+    volumes:
+      - ./lldap-data:/data
+      - ./certs/lldap-server.crt:/run/lldap-certs/lldap-server.crt:ro
+      - ./certs/lldap-server.key:/run/lldap-certs/lldap-server.key:ro
+    secrets:
+      - lldap-admin-password
+      - lldap-jwt-secret
+      - lldap-key-seed
+    ports:
+      - "${LLDAP_LDAPS_BIND_ADDRESS:-127.0.0.1}:${LLDAP_LDAPS_PORT:-16360}:6360"
+    networks:
+      directory:
+        aliases:
+          - lldap.iyagi.internal
+    healthcheck:
+      test: ["CMD", "/app/lldap", "healthcheck", "--config-file", "/data/lldap_config.toml"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bootstrap:
+    image: *lldap-image
+    profiles:
+      - bootstrap
+    entrypoint:
+      - bash
+      - /bootstrap/run.sh
+    environment:
+      LLDAP_URL: http://lldap:17170
+      LLDAP_ADMIN_USERNAME: admin
+      LLDAP_ADMIN_PASSWORD_FILE: /run/secrets/lldap-admin-password
+      GROUP_CONFIGS_DIR: /bootstrap/group-configs
+      USER_CONFIGS_DIR: /bootstrap/user-configs
+      USER_SCHEMAS_DIR: /bootstrap/empty
+      GROUP_SCHEMAS_DIR: /bootstrap/empty
+      DO_CLEANUP: "false"
+      DO_CLEANUP_USERS: "false"
+      DO_CLEANUP_GROUPS: "false"
+      DO_CLEANUP_GROUP_MEMBERSHIP: "true"
+    volumes:
+      - ./bootstrap:/bootstrap:ro
+    secrets:
+      - lldap-admin-password
+      - backend-lookup-password
+      - audit-interceptor-password
+    depends_on:
+      lldap:
+        condition: service_healthy
+    networks:
+      - directory
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  audit-interceptor:
+    build:
+      context: ./audit-interceptor
+    image: iyagi-audit-interceptor:local
+    container_name: iyagi-audit-interceptor
+    hostname: audit-interceptor
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      LLDAP_UPSTREAM: http://lldap:17170
+      SERVICE_ACCOUNT_USERNAME: iyagi_audit_interceptor
+      SERVICE_ACCOUNT_PASSWORD_FILE: /run/secrets/audit-interceptor-password
+      HEARTBEAT_INTERVAL_MS: "60000"
+      TZ: UTC
+    secrets:
+      - audit-interceptor-password
+    networks:
+      - directory
+    depends_on:
+      lldap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:8080/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+    mem_limit: 192m
+    cpus: 1.0
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: iyagi-caddy
+    hostname: caddy
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+      - ./caddy-logs:/var/log/caddy
+    ports:
+      - "${LLDAP_ADMIN_UI_BIND_ADDRESS:-127.0.0.1}:${LLDAP_ADMIN_UI_PORT:-18443}:8443"
+    networks:
+      - directory
+    depends_on:
+      audit-interceptor:
+        condition: service_healthy
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  vector-agent:
+    image: timberio/vector:0.41.1-alpine
+    container_name: iyagi-vector-agent
+    hostname: vector-agent
+    restart: unless-stopped
+    command: ["--config", "/etc/vector/vector.toml"]
+    volumes:
+      - ./vector-agent.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./caddy-logs:/var/log/caddy:ro
+      - ./vector-data:/var/lib/vector
+    networks:
+      - directory
+      - grafana-ingress
+    depends_on:
+      audit-interceptor:
+        condition: service_started
+    mem_limit: 192m
+    cpus: 0.5
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+secrets:
+  lldap-admin-password:
+    file: ./secrets/lldap-admin-password
+  lldap-jwt-secret:
+    file: ./secrets/lldap-jwt-secret
+  lldap-key-seed:
+    file: ./secrets/lldap-key-seed
+  backend-lookup-password:
+    file: ./secrets/backend-lookup-password
+  audit-interceptor-password:
+    file: ./secrets/audit-interceptor-password
+
+networks:
+  directory:
+    name: ${LLDAP_NETWORK_NAME:-iyagi-directory}
+    external: true
+  grafana-ingress:
+    name: ${LLDAP_GRAFANA_INGRESS_NETWORK_NAME:-iyagi-grafana-ingress}
+    external: true

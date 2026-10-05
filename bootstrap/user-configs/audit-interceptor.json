@@ -1,0 +1,11 @@
+{
+  "id": "iyagi_audit_interceptor",
+  "email": "iyagi_audit_interceptor@iyagi.org",
+  "password_file": "/run/secrets/audit-interceptor-password",
+  "displayName": "Iyagi Audit Interceptor",
+  "firstName": "Iyagi Audit",
+  "lastName": "Interceptor",
+  "groups": [
+    "lldap_strict_readonly"
+  ]
+}

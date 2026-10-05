@@ -1,0 +1,11 @@
+{
+  "id": "iyagi_backend_lookup",
+  "email": "iyagi_backend_lookup@iyagi.org",
+  "password_file": "/run/secrets/backend-lookup-password",
+  "displayName": "Iyagi Backend LDAP Lookup",
+  "firstName": "Iyagi Backend",
+  "lastName": "LDAP Lookup",
+  "groups": [
+    "lldap_strict_readonly"
+  ]
+}

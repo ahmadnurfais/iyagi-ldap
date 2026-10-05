@@ -1,0 +1,11 @@
+.env
+certs/
+secrets/
+backups/
+lldap-data/
+caddy-data/
+caddy-config/
+caddy-logs/
+vector-data/
+node_modules/
+*.log
