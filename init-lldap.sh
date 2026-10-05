@@ -40,11 +40,8 @@ if [[ -e certs/lldap-server.crt && ! -e certs/ca.crt ]]; then
     exit 1
 fi
 
-data_volume=${LLDAP_DATA_VOLUME_NAME:-iyagi-lldap-data}
 existing_data=false
-if docker volume inspect "$data_volume" >/dev/null 2>&1 &&
-    docker run --rm --volume "${data_volume}:/data:ro" --entrypoint bash \
-        lldap/lldap:v0.6.3 -c '[[ -n "$(ls -A /data)" ]]'; then
+if [[ -d lldap-data && -n "$(ls -A lldap-data)" ]]; then
     existing_data=true
 fi
 

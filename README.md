@@ -31,14 +31,13 @@ available only inside the shared Docker network and is not published.
 `LLDAP_CERT_DNS_NAMES` and `LLDAP_CERT_IP_ADDRESSES` are comma-separated certificate SAN lists. The
 defaults cover `lldap.iyagi.internal`, `localhost`, and `127.0.0.1`. Set them before first
 initialization to every name or address used by clients. Initialization rejects partial CA or server
-keypairs. It also refuses to generate missing secrets when an existing data volume is detected.
+keypairs. It also refuses to generate missing secrets when existing data is present in `lldap-data/`.
 
 The LLDAP container joins the external `${LLDAP_NETWORK_NAME}` network, which defaults to
 `iyagi-directory`, with alias `lldap.iyagi.internal`. Attach the backend container to the same
 external network. The init script creates this network if absent. Host publication remains
-available for clients that do not share the network. `LLDAP_CONTAINER_NAME` and
-`LLDAP_DATA_VOLUME_NAME` default to `iyagi-lldap` and `iyagi-lldap-data`; keep the data volume name
-stable across redeployments.
+available for clients that do not share the network. `LLDAP_CONTAINER_NAME` defaults to
+`iyagi-lldap`. The `lldap-data/` directory stores persistent LLDAP data through a bind mount.
 
 Only `certs/lldap-server.crt` and `certs/lldap-server.key` are mounted into LLDAP. The server files
 are owned by UID/GID 1000 so the image's runtime user can read them. `certs/ca.key` remains host-only
@@ -120,30 +119,29 @@ secrets directly instead of mounting a file.
 
 ## Backup And Restore
 
-The named volume `iyagi-lldap-data` stores the SQLite database and generated LLDAP
-configuration. Back up the volume together with `certs/` and `secrets/`. The key seed encrypts
-stored passwords, so a database backup without its matching `secrets/lldap-key-seed` cannot be
-fully restored.
+The `lldap-data/` directory stores the SQLite database and generated LLDAP configuration. Back up
+the directory together with `certs/` and `secrets/`. The key seed encrypts stored passwords, so a
+database backup without its matching `secrets/lldap-key-seed` cannot be fully restored.
 
 Stop writes before creating a consistent archive:
 
 ```sh
 mkdir -p backups
 docker compose stop lldap
-docker run --rm -v iyagi-lldap-data:/source:ro -v "$PWD/backups:/backup" alpine \
-  tar -czf /backup/lldap-data.tar.gz -C /source .
+tar -czf backups/lldap-data.tar.gz -C lldap-data .
 tar -czf backups/lldap-files.tar.gz certs secrets .env
 docker compose start lldap
 ```
 
-Restore into an empty volume, then restore the matching certificate and secret archive:
+Restore into an empty data directory, then restore the matching certificate and secret archive:
 
 ```sh
 docker compose down
-docker volume create iyagi-lldap-data
-docker run --rm -v iyagi-lldap-data:/target -v "$PWD/backups:/backup:ro" alpine \
-  sh -c 'rm -rf /target/* && tar -xzf /backup/lldap-data.tar.gz -C /target'
+rm -rf lldap-data
+mkdir lldap-data
+tar -xzf backups/lldap-data.tar.gz -C lldap-data
 tar -xzf backups/lldap-files.tar.gz
+chown -R 1000:1000 lldap-data
 docker compose up -d --wait lldap
 ```
 
