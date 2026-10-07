@@ -51,7 +51,6 @@ required_secrets=(
     secrets/lldap-key-seed
     secrets/backend-lookup-password
     secrets/audit-interceptor-password
-    secrets/loki-ingest-token
 )
 if [[ "$existing_data" == true ]]; then
     for secret_path in "${required_secrets[@]}"; do
@@ -135,7 +134,6 @@ generate_secret secrets/lldap-jwt-secret 32
 generate_secret secrets/lldap-key-seed 32
 generate_secret secrets/backend-lookup-password 32
 generate_secret secrets/audit-interceptor-password 32
-generate_secret secrets/loki-ingest-token 32
 
 for secret_path in "${required_secrets[@]}"; do
     if [[ ! -s "$secret_path" ]]; then
@@ -170,6 +168,6 @@ if ! docker network inspect "$network_name" >/dev/null 2>&1; then
     docker network create "$network_name" >/dev/null
 fi
 
-docker compose up -d --wait lldap audit-interceptor alloy ldaps-gateway
+docker compose up -d --wait lldap audit-interceptor ldaps-gateway
 
 printf '%s\n' 'LLDAP is running. Run the required bootstrap command from README.md, then verify it.'

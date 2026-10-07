@@ -147,6 +147,8 @@ services:
     container_name: iyagi-alloy
     hostname: alloy
     restart: unless-stopped
+    profiles:
+      - observability
     command:
       - run
       - --storage.path=/var/lib/alloy

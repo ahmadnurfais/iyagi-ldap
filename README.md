@@ -21,8 +21,16 @@ does not replace existing secret files or certificates. Bootstrap is a required,
 step. It creates the lookup identity and application groups, reconciles the lookup identity to its
 single declared group, and ends by verifying that exact membership.
 
-For local development with `iyagi-grafana` on the same Docker host, start both projects with their
-local overrides:
+The base deployment is LDAP-only. It starts:
+
+- LLDAP
+- Audit interceptor
+- LDAPS gateway
+
+It does not start Alloy and does not require Grafana, Loki, or a Loki credential.
+
+For local development with `iyagi-grafana` on the same Docker host, start Grafana first and enable
+the observability profile explicitly:
 
 ```sh
 # Run first from iyagi-grafana.
@@ -30,6 +38,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --wait
 
 # Run from this project.
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --wait
+docker compose -f docker-compose.yml -f docker-compose.local.yml --profile observability up -d alloy
 ```
 
 The local override sends Alloy logs directly to Loki. It does not use Nginx, TLS, or a public
@@ -129,8 +138,10 @@ LDAPS binds and searches appear in LLDAP operational logs. Password changes made
 receive the same actor and before/after audit record. Full LDAP protocol auditing would require an
 LLDAP source change.
 
-Grafana Alloy reads gateway and LLDAP logs. It stores positions and a write-ahead log in
-`alloy-data/`, then sends logs to the central Loki HTTPS endpoint. Configure these `.env` values:
+## Optional Observability
+
+LDAP runs without Grafana or Loki. To enable log shipping later, obtain the source credential from
+the Loki server and store it as `secrets/loki-ingest-token`. Configure these `.env` values:
 
 ```dotenv
 IYAGI_ENVIRONMENT=production
@@ -141,10 +152,15 @@ LOKI_CA_HOST_FILE=/etc/ssl/certs/ca-certificates.crt
 LOKI_CA_FILE=/etc/ssl/certs/ca-certificates.crt
 ```
 
-Store the matching password from the observability VPS in
-`secrets/loki-ingest-token`. For an internal certificate authority, set the host and container CA
-paths to the CA PEM file. Alloy resumes from its stored positions after a restart and keeps unsent
-entries in its WAL during a temporary network outage.
+For an internal certificate authority, set the host and container CA paths to the CA PEM file. Start
+Alloy with:
+
+```sh
+./enable-observability.sh
+```
+
+Alloy reads gateway and LLDAP logs, stores positions and a write-ahead log in `alloy-data/`, and
+resumes delivery after temporary network outages.
 
 ## Production Nginx
 
