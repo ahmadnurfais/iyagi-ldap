@@ -32,9 +32,9 @@ services:
     ports:
       - "${LLDAP_LDAPS_BIND_ADDRESS:-127.0.0.1}:${LLDAP_LDAPS_PORT:-16360}:6360"
     networks:
-      directory:
+      core:
         aliases:
-          - lldap.iyagi.internal
+          - lldap-core
     healthcheck:
       test: ["CMD", "/app/lldap", "healthcheck", "--config-file", "/data/lldap_config.toml"]
       interval: 10s
@@ -60,7 +60,7 @@ services:
       - bash
       - /bootstrap/run.sh
     environment:
-      LLDAP_URL: http://lldap:17170
+      LLDAP_URL: http://audit-interceptor:8080
       LLDAP_ADMIN_USERNAME: admin
       LLDAP_ADMIN_PASSWORD_FILE: /run/secrets/lldap-admin-password
       GROUP_CONFIGS_DIR: /bootstrap/group-configs
@@ -80,8 +80,10 @@ services:
     depends_on:
       lldap:
         condition: service_healthy
+      audit-interceptor:
+        condition: service_healthy
     networks:
-      - directory
+      - core
     mem_limit: 128m
     cpus: 0.5
     pids_limit: 128
@@ -102,15 +104,21 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8080"
-      LLDAP_UPSTREAM: http://lldap:17170
+      LLDAP_UPSTREAM: http://lldap-core:17170
       SERVICE_ACCOUNT_USERNAME: iyagi_audit_interceptor
       SERVICE_ACCOUNT_PASSWORD_FILE: /run/secrets/audit-interceptor-password
+      JWT_SECRET_FILE: /run/secrets/lldap-jwt-secret
       HEARTBEAT_INTERVAL_MS: "60000"
+      MAX_BODY_BYTES: "1048576"
+      UPSTREAM_TIMEOUT_MS: "30000"
       TZ: UTC
     secrets:
       - audit-interceptor-password
+      - lldap-jwt-secret
+    ports:
+      - "${LLDAP_ADMIN_UI_BIND_ADDRESS:-127.0.0.1}:${LLDAP_ADMIN_UI_PORT:-18443}:8080"
     networks:
-      - directory
+      - core
     depends_on:
       lldap:
         condition: service_healthy
@@ -134,26 +142,35 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  caddy:
-    image: caddy:2.8-alpine
-    container_name: iyagi-caddy
-    hostname: caddy
+  alloy:
+    image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    container_name: iyagi-alloy
+    hostname: alloy
     restart: unless-stopped
+    command:
+      - run
+      - --storage.path=/var/lib/alloy
+      - --server.http.listen-addr=127.0.0.1:12345
+      - /etc/alloy/config.alloy
+    environment:
+      IYAGI_ENVIRONMENT: ${IYAGI_ENVIRONMENT:-production}
+      IYAGI_HOST: ${IYAGI_HOST:-iyagi-lldap}
+      LOKI_WRITE_URL: ${LOKI_WRITE_URL}
+      LOKI_INGEST_USERNAME: ${LOKI_INGEST_USERNAME:-lldap}
+      LOKI_CA_FILE: ${LOKI_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy-data:/data
-      - ./caddy-config:/config
-      - ./caddy-logs:/var/log/caddy
-    ports:
-      - "${LLDAP_ADMIN_UI_BIND_ADDRESS:-127.0.0.1}:${LLDAP_ADMIN_UI_PORT:-18443}:8443"
-    networks:
-      - directory
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./alloy-data:/var/lib/alloy
+      - ${LOKI_CA_HOST_FILE:-/etc/ssl/certs/ca-certificates.crt}:${LOKI_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}:ro
+    secrets:
+      - loki-ingest-token
     depends_on:
       audit-interceptor:
-        condition: service_healthy
-    mem_limit: 128m
+        condition: service_started
+    mem_limit: 192m
     cpus: 0.5
-    pids_limit: 128
+    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     logging:
@@ -162,26 +179,30 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  vector-agent:
-    image: timberio/vector:0.41.1-alpine
-    container_name: iyagi-vector-agent
-    hostname: vector-agent
+  ldaps-gateway:
+    image: haproxy:3.2.7-alpine@sha256:3b80483d47e1c7d1fc7eb4b9104f33d9a51259769be299eb675524dca2bc8157
+    container_name: iyagi-ldaps-gateway
+    hostname: lldap.iyagi.internal
     restart: unless-stopped
-    command: ["--config", "/etc/vector/vector.toml"]
+    command: ["haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
     volumes:
-      - ./vector-agent.toml:/etc/vector/vector.toml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./caddy-logs:/var/log/caddy:ro
-      - ./vector-data:/var/lib/vector
+      - ./haproxy/ldaps.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     networks:
-      - directory
-      - grafana-ingress
+      core:
+      directory:
+        aliases:
+          - lldap.iyagi.internal
     depends_on:
-      audit-interceptor:
-        condition: service_started
-    mem_limit: 192m
-    cpus: 0.5
-    pids_limit: 256
+      lldap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
     security_opt:
       - no-new-privileges:true
     logging:
@@ -201,11 +222,12 @@ secrets:
     file: ./secrets/backend-lookup-password
   audit-interceptor-password:
     file: ./secrets/audit-interceptor-password
+  loki-ingest-token:
+    file: ./secrets/loki-ingest-token
 
 networks:
+  core:
+    name: iyagi-lldap-core
   directory:
     name: ${LLDAP_NETWORK_NAME:-iyagi-directory}
-    external: true
-  grafana-ingress:
-    name: ${LLDAP_GRAFANA_INGRESS_NETWORK_NAME:-iyagi-grafana-ingress}
     external: true

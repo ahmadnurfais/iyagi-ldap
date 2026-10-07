@@ -150,22 +150,19 @@ chmod 600 certs/lldap-server.key
 chmod 644 certs/ca.crt certs/lldap-server.crt
 rm -f certs/lldap-server.csr certs/ca.srl
 
-# LLDAP core secrets are read by the lldap container running as UID 1000 which
-# matches the host owner, so 0600 is sufficient. The audit-interceptor runs as
-# an in-image system user whose UID does not match the host; Docker file
-# secrets preserve host ownership/mode, so its secret must be world-readable.
-chmod 755 secrets
-chmod 644 secrets/audit-interceptor-password secrets/loki-ingest-token
+# LLDAP and the audit gateway run as UID 1000, matching the host owner. Alloy
+# runs as root because it needs the Docker socket. All file secrets stay 0600.
+chmod 700 secrets
+chmod 600 secrets/*
 
 # Data dirs are host bind mounts under the project directory so backup, inspect,
 # and migrate are trivial. UIDs for container processes:
 #   lldap          : 1000:1000 (set via UID/GID env, matches host owner)
-#   caddy          : root inside container, writes to /data, /config, /var/log/caddy
-#   vector-agent   : root inside container, writes to /var/lib/vector
+#   alloy          : root inside container, writes to /var/lib/alloy
 #   audit-interceptor: read_only root fs, no data dir
 # Create the dirs and chown lldap-data to 1000:1000. The rest are initialized by
 # their containers at first start; chowning here is a no-op after that.
-mkdir -p lldap-data caddy-data caddy-config caddy-logs vector-data
+mkdir -p lldap-data alloy-data
 chown -R 1000:1000 lldap-data
 
 network_name=${LLDAP_NETWORK_NAME:-iyagi-directory}
@@ -173,12 +170,6 @@ if ! docker network inspect "$network_name" >/dev/null 2>&1; then
     docker network create "$network_name" >/dev/null
 fi
 
-grafana_ingress=${LLDAP_GRAFANA_INGRESS_NETWORK_NAME:-iyagi-grafana-ingress}
-if ! docker network inspect "$grafana_ingress" >/dev/null 2>&1; then
-    printf '%s\n' "Cross-project network '$grafana_ingress' not found. Run iyagi-grafana/init-grafana.sh first." >&2
-    exit 1
-fi
-
-docker compose up -d --wait lldap audit-interceptor caddy vector-agent
+docker compose up -d --wait lldap audit-interceptor alloy ldaps-gateway
 
 printf '%s\n' 'LLDAP is running. Run the required bootstrap command from README.md, then verify it.'

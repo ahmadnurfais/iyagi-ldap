@@ -1,0 +1,24 @@
+# Place limit_req_zone inside the nginx http {} block. It cannot be declared
+# inside a server block.
+limit_req_zone $binary_remote_addr zone=lldap_login:10m rate=5r/m;
+
+server {
+    listen 443 ssl http2;
+    server_name ldap.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/ldap.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ldap.example.com/privkey.pem;
+
+    client_max_body_size 1m;
+
+    location ~ ^/auth/(simple/login|opaque/login/(start|finish))$ {
+        limit_req zone=lldap_login burst=5 nodelay;
+        proxy_pass http://127.0.0.1:18443;
+        include /etc/nginx/snippets/lldap-proxy-headers.conf;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:18443;
+        include /etc/nginx/snippets/lldap-proxy-headers.conf;
+    }
+}

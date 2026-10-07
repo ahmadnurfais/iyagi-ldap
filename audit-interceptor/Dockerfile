@@ -1,18 +1,17 @@
-FROM node:20-alpine AS build
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
 WORKDIR /app
-COPY package.json tsconfig.json ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --no-audit --no-fund
 COPY src ./src
 RUN npx tsc
 
-FROM node:20-alpine
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
 ENV NODE_ENV=production
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/dist ./dist
-RUN addgroup -S app && adduser -S -G app -H -D app \
-    && chown -R app:app /app
-USER app
+RUN chown -R 1000:1000 /app
+USER 1000:1000
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

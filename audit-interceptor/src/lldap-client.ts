@@ -6,6 +6,8 @@ export interface LldapClientOptions {
   password: string;
 }
 
+const REQUEST_TIMEOUT_MS = 5_000;
+
 interface AuthState {
   token: string;
   expiresAt: number;
@@ -26,6 +28,8 @@ export class LldapClient {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ username: this.opts.username, password: this.opts.password }),
+      headersTimeout: REQUEST_TIMEOUT_MS,
+      bodyTimeout: REQUEST_TIMEOUT_MS,
     });
     if (res.statusCode >= 400) {
       const body = await res.body.text();
@@ -52,6 +56,8 @@ export class LldapClient {
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ query, variables }),
+      headersTimeout: REQUEST_TIMEOUT_MS,
+      bodyTimeout: REQUEST_TIMEOUT_MS,
     });
     const text = await res.body.text();
     if (res.statusCode === 401 || res.statusCode === 403) {
@@ -64,6 +70,8 @@ export class LldapClient {
           authorization: `Bearer ${token2}`,
         },
         body: JSON.stringify({ query, variables }),
+        headersTimeout: REQUEST_TIMEOUT_MS,
+        bodyTimeout: REQUEST_TIMEOUT_MS,
       });
       const retryText = await retry.body.text();
       if (retry.statusCode >= 400) {
@@ -78,7 +86,7 @@ export class LldapClient {
   }
 
   async fetchUser(userId: string): Promise<Record<string, unknown> | null> {
-    const query = `query($id:String!){user(userId:$id){id email displayName firstName lastName creationDate uuid groups{id displayName}}}`;
+    const query = `query($id:String!){user(userId:$id){id email displayName firstName lastName creationDate uuid attributes{name value} groups{id displayName}}}`;
     try {
       const res = await this.graphql<{ data?: { user?: Record<string, unknown> | null } }>(query, { id: userId });
       return res.data?.user ?? null;
@@ -90,7 +98,7 @@ export class LldapClient {
   async fetchGroup(groupIdOrName: string): Promise<Record<string, unknown> | null> {
     const numeric = /^[0-9]+$/.test(groupIdOrName);
     if (numeric) {
-      const query = `query($id:Int!){group(groupId:$id){id displayName creationDate uuid users{id}}}`;
+      const query = `query($id:Int!){group(groupId:$id){id displayName creationDate uuid attributes{name value} users{id}}}`;
       try {
         const res = await this.graphql<{ data?: { group?: Record<string, unknown> | null } }>(query, { id: Number(groupIdOrName) });
         return res.data?.group ?? null;
@@ -98,7 +106,7 @@ export class LldapClient {
         return null;
       }
     }
-    const q = `query{groups{id displayName creationDate uuid users{id}}}`;
+    const q = `query{groups{id displayName creationDate uuid attributes{name value} users{id}}}`;
     try {
       const res = await this.graphql<{ data?: { groups?: Array<Record<string, unknown>> } }>(q, {});
       const list = res.data?.groups ?? [];

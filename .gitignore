@@ -3,9 +3,8 @@ certs/
 secrets/
 backups/
 lldap-data/
-caddy-data/
-caddy-config/
-caddy-logs/
+alloy-data/
 vector-data/
 node_modules/
+audit-interceptor/dist/
 *.log

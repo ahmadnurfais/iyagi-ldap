@@ -21,23 +21,39 @@ does not replace existing secret files or certificates. Bootstrap is a required,
 step. It creates the lookup identity and application groups, reconciles the lookup identity to its
 single declared group, and ends by verifying that exact membership.
 
-The defaults expose LDAPS at `ldaps://localhost:16360` and the administration UI at
-`http://localhost:17170`. Both bind to loopback. `LLDAP_HTTP_BIND_ADDRESS` and
-`LLDAP_LDAPS_BIND_ADDRESS` control host publication independently. Keep the HTTP bind on loopback.
-Set the LDAPS bind to a specific private host IP only when host-level private-network access is
-required. Do not set either bind to `0.0.0.0` on an Internet-facing host. Plain LDAP port 3890 is
-available only inside the shared Docker network and is not published.
+For local development with `iyagi-grafana` on the same Docker host, start both projects with their
+local overrides:
+
+```sh
+# Run first from iyagi-grafana.
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --wait
+
+# Run from this project.
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build --wait
+```
+
+The local override sends Alloy logs directly to Loki. It does not use Nginx, TLS, or a public
+hostname. Use the base Compose file without the local override for production.
+
+The defaults expose LDAPS at `ldaps://localhost:16360` and the audit gateway at
+`http://localhost:18443`. The LLDAP HTTP port is not published. The audit gateway sends requests to
+LLDAP after recording administrative activity. Host Nginx terminates production HTTPS and proxies to
+the loopback gateway. `LLDAP_LDAPS_BIND_ADDRESS` controls the LDAPS host publication. Set it to a
+private host IP only when host-level private-network access is required. Do not set it to `0.0.0.0`
+on an Internet-facing host. Plain LDAP port 3890 remains inside the Docker network.
 
 `LLDAP_CERT_DNS_NAMES` and `LLDAP_CERT_IP_ADDRESSES` are comma-separated certificate SAN lists. The
 defaults cover `lldap.iyagi.internal`, `localhost`, and `127.0.0.1`. Set them before first
 initialization to every name or address used by clients. Initialization rejects partial CA or server
 keypairs. It also refuses to generate missing secrets when existing data is present in `lldap-data/`.
 
-The LLDAP container joins the external `${LLDAP_NETWORK_NAME}` network, which defaults to
-`iyagi-directory`, with alias `lldap.iyagi.internal`. Attach the backend container to the same
-external network. The init script creates this network if absent. Host publication remains
-available for clients that do not share the network. `LLDAP_CONTAINER_NAME` defaults to
-`iyagi-lldap`. The `lldap-data/` directory stores persistent LLDAP data through a bind mount.
+LLDAP and the audit gateway share the private `iyagi-lldap-core` network. A TCP-only HAProxy service
+publishes LDAPS to the external `${LLDAP_NETWORK_NAME}` network, which defaults to
+`iyagi-directory`, under `lldap.iyagi.internal`. Attach backend containers to that external network.
+They can reach LDAPS on port 6360 but cannot reach LLDAP's HTTP administration port. The init script
+creates the external network if absent. Host publication remains available for clients that do not
+share the network. `LLDAP_CONTAINER_NAME` defaults to `iyagi-lldap`. The `lldap-data/` directory
+stores persistent LLDAP data through a bind mount.
 
 Only `certs/lldap-server.crt` and `certs/lldap-server.key` are mounted into LLDAP. The server files
 are owned by UID/GID 1000 so the image's runtime user can read them. `certs/ca.key` remains host-only
@@ -75,7 +91,8 @@ No custom LLDAP identity attributes are provisioned.
 
 Create staff identities and assign groups in the LLDAP UI:
 
-1. Open `http://localhost:17170` and sign in as `admin` with the value in
+1. Open `http://localhost:18443` for local development, or the production Nginx HTTPS URL, and sign
+   in as `admin` with the value in
    `secrets/lldap-admin-password`.
 2. Open **Users**, create the identity, and set its standard name and email fields.
 3. Open the user's **Groups** section.
@@ -97,6 +114,52 @@ Successful output ends with:
 ```text
 Verified iyagi_backend_lookup has only lldap_strict_readonly membership.
 ```
+
+## Audit Logging
+
+The audit gateway records web UI, GraphQL API, bootstrap, login, logout, password, and password-reset
+HTTP activity as structured JSON. Admin mutation events include the actor, source IP, target,
+result, request variables with secret fields removed, and available before/after state.
+
+The gateway is the only HTTP route to LLDAP. Bootstrap also uses the gateway. Application containers
+on `iyagi-directory` receive only TCP-forwarded LDAPS through `iyagi-ldaps-gateway` and cannot bypass
+the HTTP audit path.
+
+LDAPS binds and searches appear in LLDAP operational logs. Password changes made through LDAP do not
+receive the same actor and before/after audit record. Full LDAP protocol auditing would require an
+LLDAP source change.
+
+Grafana Alloy reads gateway and LLDAP logs. It stores positions and a write-ahead log in
+`alloy-data/`, then sends logs to the central Loki HTTPS endpoint. Configure these `.env` values:
+
+```dotenv
+IYAGI_ENVIRONMENT=production
+IYAGI_HOST=lldap-vps
+LOKI_WRITE_URL=https://logs.example.com/loki/api/v1/push
+LOKI_INGEST_USERNAME=lldap
+LOKI_CA_HOST_FILE=/etc/ssl/certs/ca-certificates.crt
+LOKI_CA_FILE=/etc/ssl/certs/ca-certificates.crt
+```
+
+Store the matching password from the observability VPS in
+`secrets/loki-ingest-token`. For an internal certificate authority, set the host and container CA
+paths to the CA PEM file. Alloy resumes from its stored positions after a restart and keeps unsent
+entries in its WAL during a temporary network outage.
+
+## Production Nginx
+
+Install `nginx/lldap-proxy-headers.conf.example` as
+`/etc/nginx/snippets/lldap-proxy-headers.conf`. Install and edit
+`nginx/lldap-admin.conf.example` as the HTTPS virtual host. Set the production hostname and
+certificate paths, then validate and reload Nginx:
+
+```sh
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Nginx forwards to `127.0.0.1:18443`, overwrites incoming client-IP headers with `$remote_addr`, and
+limits login attempts per client address. Do not publish the audit gateway on `0.0.0.0`.
 
 ## API Environment
 

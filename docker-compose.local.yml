@@ -1,0 +1,14 @@
+services:
+  alloy:
+    environment:
+      IYAGI_ENVIRONMENT: development
+      IYAGI_HOST: local-dev
+      LOKI_WRITE_URL: http://loki:3100/loki/api/v1/push
+      LOKI_INGEST_USERNAME: local-dev
+    networks:
+      - grafana-ingress
+
+networks:
+  grafana-ingress:
+    name: ${LLDAP_GRAFANA_INGRESS_NETWORK_NAME:-iyagi-grafana-ingress}
+    external: true

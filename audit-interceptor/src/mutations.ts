@@ -54,7 +54,14 @@ export const MUTATIONS: Record<string, MutationSpec> = {
   CreateGroup: {
     eventType: "admin.group.create",
     targetKind: "group",
-    idPath: "name",
+    idPath: "name|group.displayName",
+    needsPreImage: false,
+    needsPostImage: true,
+  },
+  CreateGroupWithDetails: {
+    eventType: "admin.group.create",
+    targetKind: "group",
+    idPath: "request.displayName",
     needsPreImage: false,
     needsPostImage: true,
   },
@@ -84,16 +91,16 @@ export const MUTATIONS: Record<string, MutationSpec> = {
   AddUserToGroup: {
     eventType: "admin.group.member.add",
     targetKind: "membership",
-    idPath: "user",
-    secondaryIdPath: "group",
+    idPath: "user|userId",
+    secondaryIdPath: "group|groupId",
     needsPreImage: false,
     needsPostImage: false,
   },
   RemoveUserFromGroup: {
     eventType: "admin.group.member.remove",
     targetKind: "membership",
-    idPath: "user",
-    secondaryIdPath: "group",
+    idPath: "user|userId",
+    secondaryIdPath: "group|groupId",
     needsPreImage: false,
     needsPostImage: false,
   },
@@ -127,10 +134,45 @@ export const MUTATIONS: Record<string, MutationSpec> = {
     needsPreImage: false,
     needsPostImage: false,
   },
+  AddUserObjectClass: {
+    eventType: "admin.schema.user-object-class.add",
+    targetKind: "attribute",
+    idPath: "name",
+    needsPreImage: false,
+    needsPostImage: false,
+  },
+  DeleteUserObjectClass: {
+    eventType: "admin.schema.user-object-class.delete",
+    targetKind: "attribute",
+    idPath: "name",
+    needsPreImage: false,
+    needsPostImage: false,
+  },
+  AddGroupObjectClass: {
+    eventType: "admin.schema.group-object-class.add",
+    targetKind: "attribute",
+    idPath: "name",
+    needsPreImage: false,
+    needsPostImage: false,
+  },
+  DeleteGroupObjectClass: {
+    eventType: "admin.schema.group-object-class.delete",
+    targetKind: "attribute",
+    idPath: "name",
+    needsPreImage: false,
+    needsPostImage: false,
+  },
 };
 
 export function resolvePath(obj: unknown, path: string | null | undefined): string | null {
   if (!path) return null;
+  if (path.includes("|")) {
+    for (const candidate of path.split("|")) {
+      const resolved = resolvePath(obj, candidate);
+      if (resolved !== null) return resolved;
+    }
+    return null;
+  }
   const parts = path.split(".");
   let cur: unknown = obj;
   for (const p of parts) {

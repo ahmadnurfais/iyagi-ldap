@@ -1,0 +1,75 @@
+local.file "loki_password" {
+  filename  = "/run/secrets/loki-ingest-token"
+  is_secret = true
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "lldap_containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(iyagi-audit-interceptor|iyagi-lldap)"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.+)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "lldap" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.lldap_containers.output
+  forward_to = [loki.process.lldap.receiver]
+}
+
+loki.process "lldap" {
+  stage.json {
+    expressions = {
+      event_type = "event_type",
+    }
+  }
+
+  stage.labels {
+    values = {
+      event_type = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      environment = sys.env("IYAGI_ENVIRONMENT"),
+      host        = sys.env("IYAGI_HOST"),
+      service     = "lldap",
+    }
+  }
+
+  forward_to = [loki.write.central.receiver]
+}
+
+loki.write "central" {
+  endpoint {
+    url = sys.env("LOKI_WRITE_URL")
+
+    basic_auth {
+      username = sys.env("LOKI_INGEST_USERNAME")
+      password = local.file.loki_password.content
+    }
+
+    tls_config {
+      ca_file = sys.env("LOKI_CA_FILE")
+    }
+
+  }
+
+  wal {
+    enabled         = true
+    max_segment_age = "24h"
+  }
+}
