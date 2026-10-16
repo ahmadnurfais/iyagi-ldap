@@ -6,5 +6,5 @@ lldap-data/
 alloy-data/
 vector-data/
 node_modules/
-audit-interceptor/dist/
+lldap-admin-audit-proxy/dist/
 *.log

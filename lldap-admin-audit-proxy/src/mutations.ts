@@ -1,5 +1,5 @@
 /**
- * Classification of GraphQL mutation operation names that the interceptor
+ * Classification of GraphQL mutation operation names that the admin audit proxy
  * recognizes for audit purposes. Any mutation not listed here is still audited
  * as a generic admin.unknown event with the raw variables.
  */
@@ -38,14 +38,14 @@ export const MUTATIONS: Record<string, MutationSpec> = {
   DeleteUser: {
     eventType: "admin.user.delete",
     targetKind: "user",
-    idPath: "userId",
+    idPath: "userId|user",
     needsPreImage: true,
     needsPostImage: false,
   },
   DeleteUserQuery: {
     eventType: "admin.user.delete",
     targetKind: "user",
-    idPath: "userId",
+    idPath: "userId|user",
     needsPreImage: true,
     needsPostImage: false,
   },

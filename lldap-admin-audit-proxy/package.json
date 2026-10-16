@@ -1,5 +1,5 @@
 {
-  "name": "iyagi-lldap-audit-interceptor",
+  "name": "iyagi-lldap-admin-audit-proxy",
   "version": "1.0.0",
   "private": true,
   "type": "module",

@@ -148,7 +148,7 @@ chmod 600 certs/lldap-server.key
 chmod 644 certs/ca.crt certs/lldap-server.crt
 rm -f certs/lldap-server.csr certs/ca.srl
 
-# LLDAP and the audit gateway run as UID 1000, matching the host owner. Alloy
+# LLDAP and the admin audit proxy run as UID 1000, matching the host owner. Alloy
 # runs as root because it needs the Docker socket. All file secrets stay 0600.
 chmod 700 secrets
 chmod 600 secrets/*
@@ -157,7 +157,7 @@ chmod 600 secrets/*
 # and migrate are trivial. UIDs for container processes:
 #   lldap          : 1000:1000 (set via UID/GID env, matches host owner)
 #   alloy          : root inside container, writes to /var/lib/alloy
-#   audit-interceptor: read_only root fs, no data dir
+#   lldap-admin-audit-proxy: read_only root fs, no data dir
 # Create the dirs and chown lldap-data to 1000:1000. The rest are initialized by
 # their containers at first start; chowning here is a no-op after that.
 mkdir -p lldap-data alloy-data
@@ -168,6 +168,6 @@ if ! docker network inspect "$network_name" >/dev/null 2>&1; then
     docker network create "$network_name" >/dev/null
 fi
 
-docker compose up -d --wait lldap audit-interceptor ldaps-gateway
+docker compose up -d --wait lldap lldap-admin-audit-proxy ldaps-gateway
 
 printf '%s\n' 'LLDAP is running. Run the required bootstrap command from README.md, then verify it.'

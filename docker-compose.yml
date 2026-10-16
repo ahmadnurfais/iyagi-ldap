@@ -60,7 +60,7 @@ services:
       - bash
       - /bootstrap/run.sh
     environment:
-      LLDAP_URL: http://audit-interceptor:8080
+      LLDAP_URL: http://lldap-admin-audit-proxy:8080
       LLDAP_ADMIN_USERNAME: admin
       LLDAP_ADMIN_PASSWORD_FILE: /run/secrets/lldap-admin-password
       GROUP_CONFIGS_DIR: /bootstrap/group-configs
@@ -80,7 +80,7 @@ services:
     depends_on:
       lldap:
         condition: service_healthy
-      audit-interceptor:
+      lldap-admin-audit-proxy:
         condition: service_healthy
     networks:
       - core
@@ -95,16 +95,17 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  audit-interceptor:
+  lldap-admin-audit-proxy:
     build:
-      context: ./audit-interceptor
-    image: iyagi-audit-interceptor:local
-    container_name: iyagi-audit-interceptor
-    hostname: audit-interceptor
+      context: ./lldap-admin-audit-proxy
+    image: iyagi-lldap-admin-audit-proxy:local
+    container_name: iyagi-lldap-admin-audit-proxy
+    hostname: lldap-admin-audit-proxy
     restart: unless-stopped
     environment:
       PORT: "8080"
       LLDAP_UPSTREAM: http://lldap-core:17170
+      # Persisted compatibility identity; rename only through a separate LLDAP account migration.
       SERVICE_ACCOUNT_USERNAME: iyagi_audit_interceptor
       SERVICE_ACCOUNT_PASSWORD_FILE: /run/secrets/audit-interceptor-password
       JWT_SECRET_FILE: /run/secrets/lldap-jwt-secret
@@ -168,7 +169,7 @@ services:
     secrets:
       - loki-ingest-token
     depends_on:
-      audit-interceptor:
+      lldap-admin-audit-proxy:
         condition: service_started
     mem_limit: 192m
     cpus: 0.5

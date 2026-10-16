@@ -14,8 +14,8 @@ interface AuthState {
 }
 
 /**
- * Minimal service-account GraphQL client used by the interceptor to fetch
- * pre/post images of entities. Uses the read-only audit-interceptor account.
+ * Minimal service-account GraphQL client used by the admin audit proxy to fetch
+ * pre/post images of entities. Uses the existing read-only audit service account.
  * Access tokens from /auth/simple/login are short-lived; refresh on demand.
  */
 export class LldapClient {

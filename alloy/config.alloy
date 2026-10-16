@@ -4,7 +4,8 @@ local.file "loki_password" {
 }
 
 discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
 }
 
 discovery.relabel "lldap_containers" {
@@ -12,7 +13,7 @@ discovery.relabel "lldap_containers" {
 
   rule {
     source_labels = ["__meta_docker_container_name"]
-    regex         = "/(iyagi-audit-interceptor|iyagi-lldap)"
+    regex         = "/(iyagi-lldap-admin-audit-proxy|iyagi-lldap)"
     action        = "keep"
   }
 
