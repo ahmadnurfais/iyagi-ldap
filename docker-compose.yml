@@ -157,7 +157,7 @@ services:
       - /etc/alloy/config.alloy
     environment:
       IYAGI_ENVIRONMENT: ${IYAGI_ENVIRONMENT:-production}
-      IYAGI_HOST: ${IYAGI_HOST:-iyagi-lldap}
+      IYAGI_HOST: ${IYAGI_HOST:-lldap}
       LOKI_WRITE_URL: ${LOKI_WRITE_URL}
       LOKI_INGEST_USERNAME: ${LOKI_INGEST_USERNAME:-lldap}
       LOKI_CA_FILE: ${LOKI_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
